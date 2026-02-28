@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -13,6 +14,8 @@ from aiogram.filters import CommandStart
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 STARS_PRICE = 50          # цена в Stars
 PRODUCT_URL = "https://drive.google.com/file/d/1hSkkNyLwpXZw-T4fS9XSQ0YIA9a_yxbH/view?usp=sharing"
+# Твой URL на Render для самопинга
+RENDER_URL = "https://gamebooster-bot.onrender.com"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +29,21 @@ if not BOT_TOKEN:
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# ─── Функция «Не засыпать» (Self-Ping) ─────────────────────────────────────────
+async def keep_alive_ping():
+    """Каждые 10 минут заходит на сайт, чтобы Render не выключил бота"""
+    await asyncio.sleep(30) # Даем боту сначала запуститься
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(RENDER_URL) as response:
+                    log.info(f"Self-ping sent to {RENDER_URL}. Status: {response.status}")
+        except Exception as e:
+            log.error(f"Self-ping failed: {e}")
+        
+        # Спим 10 минут (600 секунд), это меньше лимита в 15 минут
+        await asyncio.sleep(600)
 
 # ─── Кнопка «Купить» ──────────────────────────────────────────────────────────
 def buy_keyboard() -> InlineKeyboardMarkup:
@@ -74,7 +92,8 @@ async def successful_payment(message: Message):
     text = (
         "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n"
         "✅ <b>Payment successful! Thank you for your purchase.</b>\n\n"
-        f"🎮 Вот твой <b>GAMEBooster</b>:\n{PRODUCT_URL}\n\n"
+        "🎮 Вот твой <b>GAMEBooster</b> (с пасхалкой внутри!):\n"
+        f"{PRODUCT_URL}\n\n"
         "📌 Сохрани ссылку — она не истекает.\n"
         "📌 Save the link — it does not expire."
     )
@@ -95,10 +114,11 @@ async def start_webserver():
 
 # ─── Точка входа ─────────────────────────────────────────────────────────────
 async def main():
-    log.info("🤖 GAMEBooster bot запускается...")
+    log.info("🤖 GAMEBooster bot запускается с системой Anti-Sleep...")
     await asyncio.gather(
         start_webserver(),
-        dp.start_polling(bot)
+        dp.start_polling(bot),
+        keep_alive_ping() # Запускаем «будильник»
     )
 
 if __name__ == "__main__":
