@@ -10,11 +10,9 @@ from aiogram.types import (
 from aiogram.filters import CommandStart
 
 # ─── Конфиг ───────────────────────────────────────────────────────────────────
-# Мы берем переменную "BOT_TOKEN", которую ты пропишешь в настройках Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 STARS_PRICE = 50          # цена в Stars
 PRODUCT_URL = "https://drive.google.com/file/d/1hSkkNyLwpXZw-T4fS9XSQ0YIA9a_yxbH/view?usp=sharing"
-KEEP_ALIVE_INTERVAL = 15 * 60  # 15 минут
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,9 +20,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Проверка, что токен вообще есть
 if not BOT_TOKEN:
-    log.error("ОШИБКА: BOT_TOKEN не найден в настройках хостинга!")
+    log.error("ОШИБКА: BOT_TOKEN не найден!")
     exit(1)
 
 bot = Bot(token=BOT_TOKEN)
@@ -34,7 +31,7 @@ dp = Dispatcher()
 def buy_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text=f"🛒 Купить за {STARS_PRICE} ⭐",
+            text=f"🛒 Купить / Buy ({STARS_PRICE} ⭐)",
             callback_data="buy"
         )
     ]])
@@ -42,23 +39,24 @@ def buy_keyboard() -> InlineKeyboardMarkup:
 # ─── /start ───────────────────────────────────────────────────────────────────
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(
-        "👾 <b>GAMEBooster — Оптимизатор ПК для игр</b>\n\n"
+    text = (
+        "👾 <b>GAMEBooster — Оптимизатор ПК / PC Optimizer</b>\n\n"
         "🚀 Разгони свой компьютер и получи максимальный FPS!\n"
-        "Цена: <b>50 ⭐ Telegram Stars</b>\n\n"
-        "Нажми кнопку ниже, чтобы купить и сразу получить файл 👇",
-        parse_mode="HTML",
-        reply_markup=buy_keyboard()
+        "🚀 Boost your PC and get maximum FPS!\n\n"
+        "Цена / Price: <b>50 ⭐ Telegram Stars</b>\n\n"
+        "Нажми кнопку ниже, чтобы купить и сразу получить файл 👇\n"
+        "Click the button below to buy and get the file instantly 👇"
     )
+    await message.answer(text, parse_mode="HTML", reply_markup=buy_keyboard())
 
-# ─── Нажатие «Купить» → создаём Invoice ─────────────────────────────
+# ─── Нажатие «Купить» → Invoice ─────────────────────────────
 @dp.callback_query(F.data == "buy")
 async def callback_buy(call: CallbackQuery):
     await call.answer()
     await bot.send_invoice(
         chat_id=call.from_user.id,
-        title="GAMEBooster — Оптимизатор ПК",
-        description="Мгновенная доставка. Разгони свой ПК и увеличь FPS в играх!",
+        title="GAMEBooster — Optimizer",
+        description="Мгновенная доставка / Instant delivery",
         payload="gamebooster_purchase",
         provider_token="",                       # Пусто для Stars
         currency="XTR",                         # Код валюты для Stars
@@ -73,14 +71,16 @@ async def pre_checkout(query: PreCheckoutQuery):
 # ─── Успешная оплата → выдаём товар ──────────────────────────────────────────
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
-    await message.answer(
-        "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n\n"
+    text = (
+        "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n"
+        "✅ <b>Payment successful! Thank you for your purchase.</b>\n\n"
         f"🎮 Вот твой <b>GAMEBooster</b>:\n{PRODUCT_URL}\n\n"
-        "📌 Сохрани ссылку — она не истекает.",
-        parse_mode="HTML"
+        "📌 Сохрани ссылку — она не истекает.\n"
+        "📌 Save the link — it does not expire."
     )
+    await message.answer(text, parse_mode="HTML")
 
-# ─── Веб-сервер для Render (чтобы не засыпал) ──────────────────────────────
+# ─── Веб-сервер для Render ──────────────────────────────
 async def health(request):
     return web.Response(text="OK")
 
@@ -96,7 +96,6 @@ async def start_webserver():
 # ─── Точка входа ─────────────────────────────────────────────────────────────
 async def main():
     log.info("🤖 GAMEBooster bot запускается...")
-    # Запускаем бота и веб-сервер вместе
     await asyncio.gather(
         start_webserver(),
         dp.start_polling(bot)
