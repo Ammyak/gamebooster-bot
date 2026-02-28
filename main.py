@@ -10,11 +10,11 @@ from aiogram.types import (
 from aiogram.filters import CommandStart
 
 # ─── Конфиг ───────────────────────────────────────────────────────────────────
-# Токен берем из переменных окружения хостинга (Render/Koyeb)
-BOT_TOKEN   = os.environ.get("8718220580:AAFZXCUF87zIpDa2GFz7jYu0B68ECvjauMc") 
+# Мы берем переменную "BOT_TOKEN", которую ты пропишешь в настройках Render
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 STARS_PRICE = 50          # цена в Stars
 PRODUCT_URL = "https://drive.google.com/file/d/1hSkkNyLwpXZw-T4fS9XSQ0YIA9a_yxbH/view?usp=sharing"
-KEEP_ALIVE_INTERVAL = 15 * 60  # 15 минут в секундах
+KEEP_ALIVE_INTERVAL = 15 * 60  # 15 минут
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,8 +22,13 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Проверка, что токен вообще есть
+if not BOT_TOKEN:
+    log.error("ОШИБКА: BOT_TOKEN не найден в настройках хостинга!")
+    exit(1)
+
 bot = Bot(token=BOT_TOKEN)
-dp  = Dispatcher()
+dp = Dispatcher()
 
 # ─── Кнопка «Купить» ──────────────────────────────────────────────────────────
 def buy_keyboard() -> InlineKeyboardMarkup:
@@ -46,7 +51,7 @@ async def cmd_start(message: Message):
         reply_markup=buy_keyboard()
     )
 
-# ─── Нажатие «Купить» → создаём Invoice (БЕЗ ФОТО) ─────────────────────────────
+# ─── Нажатие «Купить» → создаём Invoice ─────────────────────────────
 @dp.callback_query(F.data == "buy")
 async def callback_buy(call: CallbackQuery):
     await call.answer()
@@ -58,38 +63,24 @@ async def callback_buy(call: CallbackQuery):
         provider_token="",                       # Пусто для Stars
         currency="XTR",                         # Код валюты для Stars
         prices=[LabeledPrice(label="GAMEBooster", amount=STARS_PRICE)]
-        # Параметры фото удалены для чистоты кода
     )
 
-# ─── Pre-checkout: подтверждаем готовность сервера ────────────────────────────
+# ─── Pre-checkout: подтверждаем транзакцию ────────────────────────────
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
-    log.info("Pre-checkout от пользователя %s", query.from_user.id)
-    await query.answer(ok=True) # Подтверждаем транзакцию
+    await query.answer(ok=True)
 
 # ─── Успешная оплата → выдаём товар ──────────────────────────────────────────
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
-    user = message.from_user
-    stars = message.successful_payment.total_amount
-    log.info("✅ Оплата %d ⭐ от %s (id=%s)", stars, user.full_name, user.id)
-
     await message.answer(
-        "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n"
-        "✅ <b>Payment successful! Thank you for your purchase.</b>\n\n"
+        "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n\n"
         f"🎮 Вот твой <b>GAMEBooster</b>:\n{PRODUCT_URL}\n\n"
-        "📌 Сохрани ссылку — она не истекает.\n"
-        "Если возникнут вопросы — напиши нам!",
+        "📌 Сохрани ссылку — она не истекает.",
         parse_mode="HTML"
     )
 
-# ─── «Белый шум» для Render ─────────────────────────────────────
-async def keep_alive_loop():
-    while True:
-        await asyncio.sleep(KEEP_ALIVE_INTERVAL)
-        log.info("🟢 [keep-alive] Система активна. Бот работает.")
-
-# ─── Лёгкий веб-сервер для предотвращения Port Timeout на Render ──────────────
+# ─── Веб-сервер для Render (чтобы не засыпал) ──────────────────────────────
 async def health(request):
     return web.Response(text="OK")
 
@@ -98,20 +89,17 @@ async def start_webserver():
     app.router.add_get("/", health)
     runner = web.AppRunner(app)
     await runner.setup()
-    # Берем порт из переменной PORT или ставим 8080 по умолчанию
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    log.info(f"🌐 Веб-сервер запущен на порту {port}")
 
 # ─── Точка входа ─────────────────────────────────────────────────────────────
 async def main():
     log.info("🤖 GAMEBooster bot запускается...")
-    # Запускаем всё параллельно через gather
+    # Запускаем бота и веб-сервер вместе
     await asyncio.gather(
         start_webserver(),
-        keep_alive_loop(),
-        dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types()),
+        dp.start_polling(bot)
     )
 
 if __name__ == "__main__":
