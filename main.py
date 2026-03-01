@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import httpx
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -8,7 +9,6 @@ from aiogram.types import (
     PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton
 )
 from aiogram.filters import CommandStart
-from groq import Groq
 
 # --- Конфигурация ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -16,73 +16,110 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 PRODUCT_URL = os.environ.get("PRODUCT_URL", "https://your-link.com")
 STARS_PRICE = 50
 
-# Триггеры для ИИ (если ручные проверки не сработали)
-AI_TRIGGERS = ["fps", "boost", "lag", "лаг", "оптимизация", "help", "помощь"]
+# --- РАСШИРЕННЫЕ ТРИГГЕРЫ ---
+# Если эти слова есть в сообщении — включается ИИ
+AI_TRIGGERS = [
+    "fps", "фпс", "boost", "буст", "lag", "лаг", "фриз", "latency", 
+    "delay", "задержка", "оптимизация", "optimization", "help", "помощь", 
+    "настройка", "tweak", "твик", "windows", "виндовс", "system"
+]
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-groq_client = Groq(api_key=GROQ_API_KEY)
 
-def ask_llama(user_text):
-    try:
-        completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=[
-                {"role": "system", "content": "You are TurboCat, AI for ANONYM SYSTEMS. Be cool and professional."},
-                {"role": "user", "content": user_text}
-            ],
-            temperature=0.6
-        )
-        return completion.choices[0].message.content
-    except:
-        return "🐈: My AI brain is sleeping. Ask me later!"
+# --- Прямой запрос к Groq (Llama 3) ---
+async def ask_llama(user_text):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {
+                "role": "system", 
+                "content": (
+                    "You are TurboCat, an AI for ANONYM SYSTEMS v3.0. "
+                    "You help gamers optimize PC. Be cool, use gamer slang. "
+                    "Answer in the language of the user (RU or EN)."
+                )
+            },
+            {"role": "user", "content": user_text}
+        ],
+        "temperature": 0.6
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=data, timeout=25.0)
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        except Exception as e:
+            log.error(f"AI Error: {e}")
+            return "🐈: Мои кошачьи мозги перегрелись. Попробуй позже!"
 
 # --- Клавиатура ---
 def buy_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"🚀 Buy ANONYM SYSTEMS ({STARS_PRICE} ⭐)", callback_data="buy")
+        InlineKeyboardButton(text=f"🚀 Купить ANONYM SYSTEMS ({STARS_PRICE} ⭐)", callback_data="buy")
     ]])
 
-# --- Хендлеры с кучей IF ---
+# --- ХЕНДЛЕР С КУЧЕЙ ТРИГГЕРОВ ---
 @dp.message(F.text)
 async def message_handler(message: Message):
     text = message.text.lower()
 
-    # 1. Ручные проверки (те самые IF)
+    # 1. Точные команды и быстрые ответы (IF)
     if text == "/start":
-        await message.answer("Welcome to ANONYM SYSTEMS! Need a boost? 🚀", reply_markup=buy_keyboard())
+        await message.answer(
+            "<b>ANONYM SYSTEMS v3.0</b> 🐈👔\n\n"
+            "Максимальный ФПС и плавная картинка. Спрашивай что угодно!\n\n"
+            f"Цена: {STARS_PRICE} Stars",
+            parse_mode="HTML",
+            reply_markup=buy_keyboard()
+        )
     
-    elif "привет" in text or "hello" in text:
-        await message.answer("Привет! Я TurboCat. Чем помочь? 🐈👔")
+    elif any(word in text for word in ["привет", "hello", "хай", "ку"]):
+        await message.answer("Мяу! Я TurboCat. Готов разнести твои лаги в пух и прах! 🐈🚀")
 
-    elif "безопасно" in text or "safe" in text or "virus" in text:
-        await message.answer("🛡️ <b>Security Info:</b>\nOur code is open-source and we have a strict Privacy Policy on our website. No data collection!", parse_mode="HTML")
+    elif any(word in text for word in ["безопасно", "safe", "вирус", "virus", "рат", "rat"]):
+        await message.answer(
+            "🛡️ <b>Безопасность превыше всего:</b>\n"
+            "- Наш код открыт (Open Source)\n"
+            "- Мы не собираем данные (см. Privacy Policy)\n"
+            "- Никаких вирусов, только .bat и .reg скрипты.",
+            parse_mode="HTML"
+        )
 
-    elif "купить" in text or "buy" in text or "цена" in text:
-        await message.answer(f"Full pack costs {STARS_PRICE} Stars. Use the button below!", reply_markup=buy_keyboard())
+    elif any(word in text for word in ["купить", "buy", "цена", "цена", "стоимость", "stars"]):
+        await message.answer(
+            f"Пакет ANONYM SYSTEMS стоит всего <b>{STARS_PRICE} Stars</b>.\n"
+            "Нажми на кнопку ниже, чтобы начать!",
+            parse_mode="HTML",
+            reply_markup=buy_keyboard()
+        )
 
-    elif "паровоз" in text or "train" in text:
-        await message.answer("🚂 Choo-choo! Check the 'cool' folder in the archive!")
-
-    # 2. Если ручные IF не сработали, проверяем триггеры для ИИ
+    # 2. Если сработали темы-триггеры — зовем нейросеть
     elif any(trigger in text for trigger in AI_TRIGGERS):
-        response = ask_llama(message.text)
+        await message.answer("🤖 <i>TurboCat думает...</i>", parse_mode="HTML")
+        response = await ask_llama(message.text)
         await message.answer(f"🤖 <b>AI Assistant:</b>\n{response}", parse_mode="HTML")
 
-    # 3. На всё остальное бот просто вежливо молчит или шлет эмодзи
+    # 3. Если ничего не подошло
     else:
-        await message.answer("🐾")
+        await message.answer("🐾 (Я тебя слушаю, используй триггеры вроде 'фпс', 'лаги' или 'помощь')")
 
-# --- Оплата (остается без изменений) ---
+# --- Оплата и сервер (без изменений) ---
 @dp.callback_query(F.data == "buy")
 async def callback_buy(call: CallbackQuery):
     await bot.send_invoice(
         chat_id=call.from_user.id,
         title="ANONYM SYSTEMS v3.0",
-        description="Access to optimization files",
+        description="Доступ к архиву оптимизации",
         payload="gb_pay",
         provider_token="", 
         currency="XTR",
@@ -95,9 +132,8 @@ async def pre_checkout(query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def got_payment(message: Message):
-    await message.answer(f"✅ Success! Download: {PRODUCT_URL}")
+    await message.answer(f"✅ Оплата прошла! Твоя ссылка: {PRODUCT_URL}")
 
-# --- Web Server ---
 async def handle_web(request):
     return web.Response(text="Bot is alive")
 
