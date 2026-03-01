@@ -5,124 +5,100 @@ import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
-    Message, CallbackQuery, LabeledPrice,
+    Message, CallbackQuery, LabeledPrice, 
     PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton
 )
 from aiogram.filters import CommandStart
 
-# ─── Конфиг ───────────────────────────────────────────────────────────────────
+# --- Конфиг без шума ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-STARS_PRICE = 50          # цена в Stars
+STARS_PRICE = 50
 PRODUCT_URL = "https://drive.google.com/file/d/1hSkkNyLwpXZw-T4fS9XSQ0YIA9a_yxbH/view?usp=sharing"
-# Твой URL на Render для самопинга
 RENDER_URL = "https://gamebooster-bot.onrender.com"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
+# Настраиваем логи, чтобы не спамили лишним
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
 if not BOT_TOKEN:
-    log.error("ОШИБКА: BOT_TOKEN не найден!")
-    exit(1)
+    exit("ОШИБКА: Забыли BOT_TOKEN в переменных окружения!")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ─── Функция «Не засыпать» (Self-Ping) ─────────────────────────────────────────
+# --- Логика Anti-Sleep (тихий режим) ---
 async def keep_alive_ping():
-    """Каждые 10 минут заходит на сайт, чтобы Render не выключил бота"""
-    await asyncio.sleep(30) # Даем боту сначала запуститься
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(RENDER_URL) as response:
-                    log.info(f"Self-ping sent to {RENDER_URL}. Status: {response.status}")
-        except Exception as e:
-            log.error(f"Self-ping failed: {e}")
-        
-        # Спим 10 минут (600 секунд), это меньше лимита в 15 минут
-        await asyncio.sleep(600)
+    await asyncio.sleep(60) # Даем системе загрузиться
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(RENDER_URL, timeout=10) as resp:
+                    # Логируем только если что-то не так, чтобы не создавать шум
+                    if resp.status != 200:
+                        log.warning(f"Self-ping status: {resp.status}")
+            except Exception as e:
+                log.error(f"Ping error: {e}")
+            await asyncio.sleep(600) # 10 минут тишины
 
-# ─── Кнопка «Купить» ──────────────────────────────────────────────────────────
-def buy_keyboard() -> InlineKeyboardMarkup:
+# --- Кнопки ---
+def buy_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text=f"🛒 Купить / Buy ({STARS_PRICE} ⭐)",
-            callback_data="buy"
-        )
+        InlineKeyboardButton(text=f"🚀 Buy GameBooster ({STARS_PRICE} ⭐)", callback_data="buy")
     ]])
 
-# ─── /start ───────────────────────────────────────────────────────────────────
+# --- Обработчики ---
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    text = (
-        "👾 <b>GAMEBooster — Оптимизатор ПК / PC Optimizer</b>\n\n"
-        "🚀 Разгони свой компьютер и получи максимальный FPS!\n"
-        "🚀 Boost your PC and get maximum FPS!\n\n"
-        "Цена / Price: <b>50 ⭐ Telegram Stars</b>\n\n"
-        "Нажми кнопку ниже, чтобы купить и сразу получить файл 👇\n"
-        "Click the button below to buy and get the file instantly 👇"
+    await message.answer(
+        "<b>GAMEBooster</b> — Maximum FPS Optimizer\n\nPrice: 50 Stars",
+        parse_mode="HTML",
+        reply_markup=buy_keyboard()
     )
-    await message.answer(text, parse_mode="HTML", reply_markup=buy_keyboard())
 
-# ─── Нажатие «Купить» → Invoice ─────────────────────────────
 @dp.callback_query(F.data == "buy")
 async def callback_buy(call: CallbackQuery):
     await call.answer()
     await bot.send_invoice(
         chat_id=call.from_user.id,
-        title="GAMEBooster — Optimizer",
-        description="Мгновенная доставка / Instant delivery",
-        payload="gamebooster_purchase",
-        provider_token="",                       # Пусто для Stars
-        currency="XTR",                         # Код валюты для Stars
-        prices=[LabeledPrice(label="GAMEBooster", amount=STARS_PRICE)]
+        title="GAMEBooster",
+        description="Instant File Delivery",
+        payload="gb_pay",
+        provider_token="", # Для Stars пусто
+        currency="XTR",
+        prices=[LabeledPrice(label="XTR", amount=STARS_PRICE)]
     )
 
-# ─── Pre-checkout: подтверждаем транзакцию ────────────────────────────
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
     await query.answer(ok=True)
 
-# ─── Успешная оплата → выдаём товар ──────────────────────────────────────────
 @dp.message(F.successful_payment)
-async def successful_payment(message: Message):
-    text = (
-        "✅ <b>Оплата прошла! Спасибо за покупку.</b>\n"
-        "✅ <b>Payment successful! Thank you for your purchase.</b>\n\n"
-        "🎮 Вот твой <b>GAMEBooster</b> (с пасхалкой внутри!):\n"
-        f"{PRODUCT_URL}\n\n"
-        "📌 Сохрани ссылку — она не истекает.\n"
-        "📌 Save the link — it does not expire."
-    )
-    await message.answer(text, parse_mode="HTML")
+async def got_payment(message: Message):
+    await message.answer(f"✅ Payment OK!\nYour link: {PRODUCT_URL}")
 
-# ─── Веб-сервер для Render ──────────────────────────────
-async def health(request):
-    return web.Response(text="OK")
+# --- Чистый запуск без конфликтов ---
+async def handle_web(request):
+    return web.Response(text="Bot is running")
 
-async def start_webserver():
+async def main():
+    # 1. Запуск веб-сервера (для Render)
     app = web.Application()
-    app.router.add_get("/", health)
+    app.router.add_get("/", handle_web)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
+    await web.TCPSite(runner, "0.0.0.0", port).start()
 
-# ─── Точка входа ─────────────────────────────────────────────────────────────
-async def main():
-    log.info("🤖 GAMEBooster bot запускается с системой Anti-Sleep...")
-    await asyncio.gather(
-        start_webserver(),
-        dp.start_polling(bot),
-        keep_alive_ping() # Запускаем «будильник»
-    )
+    # 2. Запуск фонового пинга (отдельной задачей)
+    asyncio.create_task(keep_alive_ping())
+
+    # 3. Чистим очередь обновлений и запускаем бота
+    await bot.delete_webhook(drop_pending_updates=True)
+    log.info("Система чиста. Бот в эфире!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        log.info("Бот остановлен")
+        pass
